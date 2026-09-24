@@ -26,6 +26,50 @@ history.
   (compare `s.original_metadata` against the instrument configuration and the Esprit
   project settings).
 
+## Findings from the first real file (2026-09-24)
+
+File: `BDNE-7H1_3620-47_ROI1a 20um 10x30ms 50kV 600uA Al100.bcf` (published, 30 MB).
+Loaded with `hs.load(path, instrument="SEM")`; five signals come back:
+
+| Signal | Shape | What it is |
+|---|---|---|
+| `EDX` (`EDSSEMSpectrum`) | 55 x 42 pixels x 4096 channels | the hypermap |
+| `Video` (`Signal2D`, uint16) | 55 x 42 | camera picture of the field at map resolution |
+| three untitled `Signal2D` (uint8) | 1024 x 768 each | the three colour planes of the full-resolution camera picture (Bruker stores one image with `PlaneCount = 3`; the reader emits one signal per plane) |
+
+- **Energy axis**: 4096 channels, 9.982 eV/channel, offset -0.954 keV, so 0 to ~40 keV.
+  Comes from `Spectrum.CalibAbs` / `CalibLin`. The enormous peak at 0 keV in the sum
+  spectrum is the zero-strobe (electronic) peak (`Hardware.ZeroPeakPosition = 96`,
+  `ZeroPeakFrequency = 20000` Hz), not X-rays. Crop it (`s.isig[0.3:]`) before fitting
+  or normalising. The broad hump near 19 keV plus the line at 20.2 keV are Rh Kα
+  Compton and Rayleigh scatter from the tube anode; Esprit's stored element list
+  includes `Rh` for that reason.
+- **Pixel size**: `Microscope.DX = 26.95`, `DY = 26.90` µm; the reader reports exactly
+  these. The "20um" in the file name therefore does not describe the pixel step of this
+  map (open question for the operator: spot size? intended step?). Map extent is
+  55 x 26.9 = 1.48 mm by 42 x 26.9 = 1.13 mm.
+- **Reader detail**: both map axes use `DY` (`rsciio/bruker/_api.py`, the `"width"` axis
+  is given `y_res`), a 0.17 % difference here. The camera planes and `Video` are given
+  the map pixel size too, which is wrong for the 1024 x 768 planes (true pixel about
+  1.45 µm, from the map extent). Candidate RosettaSciIO issue, low priority.
+- **Timing**: `DSP Configuration.PixelAverage = 30000` (µs, the 30 ms dwell),
+  `Line counter` = 10 for every line (the 10 frames). `real_time = 693 s`
+  = 55 x 42 x 10 x 0.030 s exactly. No live time or dead time anywhere in the file.
+- **Not in the file**: tube current (600 µA), filter (Al 100 µm), anode material,
+  chamber atmosphere, spot size. If they are needed they must come from the file name
+  or a lab notebook. `beam_energy = 50` comes from `Analysis.PrimaryEnergy`.
+- **Detector**: `XFlash 430`, 0.45 mm SDD, 12.5 µm Be window, `DetectorCount = 2`,
+  `SelectedDetectors = 1.2` (both detectors, presumably summed); `elevation_angle = 50`,
+  `azimuth_angle = 0`, `energy_resolution_MnKa = 130` eV. The detector response
+  tables (`ResponseFunction`, `PPRTData`, `ShiftData`) are carried along; useful later
+  for a fundamental-parameters model.
+- **Stage**: `X = 172.7`, `Y = 110.9`, `Z = 125.6` (mm, presumably) mapped to
+  `Acquisition_instrument.SEM.Stage`.
+- **Line maps** (`get_lines_intensity` with default 2-FWHM windows) look right: the Ca
+  map shows the dark vein seen in the camera picture. The Ca map has a bright first
+  column and faint vertical stripes; check whether this is a scan artefact of the
+  instrument or of the reader's row/column handling.
+
 ## Open design question
 
 Reuse eXSpy's SEM-EDS machinery for micro-XRF, or eventually define an XRF signal
@@ -65,8 +109,10 @@ Input: Esprit exports one ASCII matrix of counts per element, named
 - [ ] `05_bcf_vs_esprit_maps.py`: compare line-intensity maps computed from the raw
       spectrum image with Esprit's exported maps for the same region; quantify
       differences (background handling, overlaps, dead-time correction).
-- [ ] Inspect `original_metadata` of real files and list fields that differ from the
-      instrument configuration.
+- [x] Inspect `original_metadata` of a real file (done for one file; see Findings).
+- [ ] Confirm what "20um" in the file names refers to, given `DX = 26.9` µm.
+- [ ] Verify the camera plane order (R, G, B or B, G, R) against Esprit's display.
+- [ ] Decide whether to report the image pixel-size and `y_res` details to RosettaSciIO.
 - [ ] Try HyperSpyUI and the Jupyter widgets on a real map; note what is usable.
 
 ## Log
@@ -86,3 +132,6 @@ Input: Esprit exports one ASCII matrix of counts per element, named
 - `get_lines_intensity` returns navigation-only `BaseSignal`s (shape `(nx, ny|)`), not
   `Signal2D`; `plot_images` handles them, but for arithmetic with recipe 02 maps
   transpose them first (`m.T`) so both are `Signal2D` with the same axes.
+- Later the same day: recipe 01 run on the published 30 MB file (uploaded into the
+  session). Findings recorded above. Recipe 01 gained `--plot-from-kev` (skips the
+  zero-strobe peak) and a camera-image reconstruction.

@@ -24,3 +24,6 @@ python uxrf/data/fetch_data.py --small    # only the 30 MB file
 ```
 
 Please cite the dataset when using these files.
+
+Recipe 01 writes its outputs (`*_original_metadata.txt`, `*_sum_spectrum.png`,
+`*_line_maps.png`, `*_camera_rgb.png`) next to the input file; they are ignored too.

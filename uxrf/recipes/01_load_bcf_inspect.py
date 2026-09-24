@@ -48,6 +48,12 @@ def parse_args(argv=None):
     )
     parser.add_argument("--lazy", action="store_true", help="dask-backed loading")
     parser.add_argument(
+        "--plot-from-kev",
+        type=float,
+        default=0.3,
+        help="start of the plotted sum spectrum; skips the zero-strobe peak at 0 keV (default 0.3)",
+    )
+    parser.add_argument(
         "--outdir",
         type=Path,
         default=None,
@@ -55,6 +61,46 @@ def parse_args(argv=None):
     )
     parser.add_argument("--show", action="store_true", help="open figure windows")
     return parser.parse_args(argv)
+
+
+def save_camera_image(images, spectrum_image, path):
+    """Recombine the optical camera image and save it as a PNG.
+
+    M4 Tornado files store the colour camera picture of the mapped field as
+    three 8-bit planes; RosettaSciIO returns each plane as its own untitled
+    ``Signal2D``. A same-field, map-resolution copy is stored as ``Video``.
+    The reader gives the planes the map's pixel size, which is too large;
+    the true pixel size is recovered from the map extent, assuming the camera
+    picture covers exactly the mapped area (true for the files seen so far).
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    planes = [
+        im
+        for im in images
+        if im.data.dtype == np.uint8 and not im.metadata.General.title
+    ]
+    if len(planes) != 3 or len({im.data.shape for im in planes}) != 1:
+        return
+    rgb = np.dstack([im.data for im in planes])
+    nav = spectrum_image.axes_manager.navigation_axes
+    width_um = nav[0].size * nav[0].scale
+    height_um = nav[1].size * nav[1].scale
+    print(
+        f"Camera image {rgb.shape[1]}x{rgb.shape[0]} px covers the mapped field: "
+        f"{width_um:.0f} x {height_um:.0f} {nav[0].units}, "
+        f"about {width_um / rgb.shape[1]:.2f} {nav[0].units}/px "
+        "(plane order assumed R, G, B; unverified)"
+    )
+    fig, ax = plt.subplots()
+    ax.imshow(rgb, extent=(0, width_um, height_um, 0))
+    ax.set_xlabel(f"x ({nav[0].units})")
+    ax.set_ylabel(f"y ({nav[1].units})")
+    ax.set_title("camera image")
+    fig.savefig(path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Camera image written to {path}")
 
 
 def main(argv=None) -> int:
@@ -82,18 +128,22 @@ def main(argv=None) -> int:
 
     print(f"\n{args.bcf.name}: {len(signals)} signal(s)\n")
     spectrum_image = None
+    images = []
     for s in signals:
-        print(repr(s))
+        print(repr(s), s.data.dtype)
         print(s.axes_manager)
         print()
         if s.metadata.Signal.signal_type.startswith("EDS"):
             spectrum_image = s
+        else:
+            images.append(s)
 
     if spectrum_image is None:
         print("No spectrum image found in this file.")
         return 1
 
     s = spectrum_image
+    save_camera_image(images, s, outdir / f"{stem}_camera_rgb.png")
     print("Signal type:", s.metadata.Signal.signal_type)
     print("\nMapped metadata:")
     print(s.metadata)
@@ -107,7 +157,9 @@ def main(argv=None) -> int:
 
     # Sum spectrum with X-ray line markers.
     total = s.sum()
-    total.plot(xray_lines=True)
+    # The huge peak at 0 keV is the detector's zero-strobe (electronic) peak,
+    # not X-rays; start the plot above it so the real lines are visible.
+    total.isig[args.plot_from_kev :].plot(xray_lines=True)
     fig_path = outdir / f"{stem}_sum_spectrum.png"
     plt.gcf().savefig(fig_path, dpi=150, bbox_inches="tight")
     print(f"Sum spectrum figure written to {fig_path}")
