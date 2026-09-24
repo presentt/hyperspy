@@ -3,6 +3,24 @@
 A running log. Add dated entries at the bottom of each section; do not rewrite
 history.
 
+## Start here (handoff for the next session)
+
+1. Work from the `uxrf` branch (`git checkout uxrf`), then make a topic branch
+   `uxrf-<topic>`. Set up the environment as in `uxrf/README.md` (cloud: venv +
+   `pip install -e ".[tests,doc,learning,image,speed,ipython,gui-jupyter,coverage]" exspy`).
+2. Data is not in git. Either upload a `.bcf` into the session or, if the
+   environment allows `data.caltech.edu`, run `python uxrf/data/fetch_data.py`.
+3. Smoke test: `python uxrf/recipes/01_load_bcf_inspect.py uxrf/data/<file>.bcf --elements Ca Fe Sr`
+   and `python uxrf/recipes/02_esprit_ascii_to_signals.py --demo`.
+4. Read "Findings from the first real file" and "What the raw header holds" below
+   before touching `bcf_extras.py`; field meanings marked unverified need a second file.
+5. Most useful new inputs: the 100 MB CaltechDATA map (90 kcps, 40 keV in its name),
+   any map acquired at 130 kcps or a different energy range or pixel size, and the
+   map pixel size Esprit displays for the 30 MB file (to settle `MapGeometry = 55,42,20,0`).
+6. Backlog order suggested: recipe 03 (RGB composites, now also from counts-per-second
+   maps), recipe 05 (compare `.bcf`-derived maps with Esprit exports), then map-to-mosaic
+   registration.
+
 ## Who does what
 
 | Task | Where it lives | Status |
