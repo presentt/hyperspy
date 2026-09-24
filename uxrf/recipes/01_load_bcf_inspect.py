@@ -10,7 +10,12 @@ What it does
 3. Writes the full ``original_metadata`` tree to a text file next to the
    ``.bcf`` so it can be compared against the instrument configuration.
 4. Plots the sum spectrum with X-ray line markers and, if elements are given,
-   a montage of line-intensity maps computed from the raw spectra.
+   a montage of line-intensity maps computed from the raw spectra, both as
+   raw counts and as counts per second using the per-pixel measurement times.
+5. Reads the parts of the header RosettaSciIO skips (``bcf_extras.py``): the
+   XRF tube/filter/optic block, the map configuration record, the per-pixel
+   times, and all stored camera images (high-res, low-res, chamber overview,
+   section mosaic), saved as PNGs.
 
 Usage::
 
@@ -22,6 +27,9 @@ Usage::
 import argparse
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bcf_extras  # noqa: E402  (sibling module; recipe file names start with digits)
 
 
 def parse_args(argv=None):
@@ -63,44 +71,63 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def save_camera_image(images, spectrum_image, path):
-    """Recombine the optical camera image and save it as a PNG.
+def report_header_extras(bcf_path, spectrum_image, outdir, stem):
+    """Print and save what RosettaSciIO leaves out of the header.
 
-    M4 Tornado files store the colour camera picture of the mapped field as
-    three 8-bit planes; RosettaSciIO returns each plane as its own untitled
-    ``Signal2D``. A same-field, map-resolution copy is stored as ``Video``.
-    The reader gives the planes the map's pixel size, which is too large;
-    the true pixel size is recovered from the map extent, assuming the camera
-    picture covers exactly the mapped area (true for the files seen so far).
+    Returns the per-pixel measurement times in microseconds (or None).
     """
     import matplotlib.pyplot as plt
     import numpy as np
 
-    planes = [
-        im
-        for im in images
-        if im.data.dtype == np.uint8 and not im.metadata.General.title
-    ]
-    if len(planes) != 3 or len({im.data.shape for im in planes}) != 1:
-        return
-    rgb = np.dstack([im.data for im in planes])
+    xml = bcf_extras.read_header_xml(bcf_path)
+
+    print("\nXRF header (tube, filter, optic, chamber, geometry):")
+    for key, val in bcf_extras.xrf_header(xml).items():
+        if key not in ("Type", "Version", "Size", "NofLayer", "RelativeArea"):
+            print(f"  {key} = {val}")
+    print("Pulse processor:")
+    for key, val in bcf_extras.hardware_header(xml).items():
+        if key not in ("Type", "Version", "Size"):
+            print(f"  {key} = {val}")
+    print("Map configuration record:")
+    for key, val in bcf_extras.map_description(xml).items():
+        print(f"  {key} = {val}")
+
+    times = bcf_extras.pixel_times(xml)
+    if times is not None:
+        print(
+            f"PixelTimes: {times.shape[1]} x {times.shape[0]} px, "
+            f"{times.min() / 1e3:.0f} to {times.max() / 1e3:.0f} ms per pixel, "
+            f"sum {times.sum() / 1e6:.0f} s; first column has "
+            f"{times[:, 0].mean() / np.median(times):.0%} of the median time"
+        )
+        fig, ax = plt.subplots()
+        im = ax.imshow(times / 1e3, cmap="viridis")
+        plt.colorbar(im, ax=ax, label="ms per pixel")
+        ax.set_title("PixelTimes")
+        fig.savefig(outdir / f"{stem}_pixel_times.png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
     nav = spectrum_image.axes_manager.navigation_axes
     width_um = nav[0].size * nav[0].scale
     height_um = nav[1].size * nav[1].scale
-    print(
-        f"Camera image {rgb.shape[1]}x{rgb.shape[0]} px covers the mapped field: "
-        f"{width_um:.0f} x {height_um:.0f} {nav[0].units}, "
-        f"about {width_um / rgb.shape[1]:.2f} {nav[0].units}/px "
-        "(plane order assumed R, G, B; unverified)"
-    )
-    fig, ax = plt.subplots()
-    ax.imshow(rgb, extent=(0, width_um, height_um, 0))
-    ax.set_xlabel(f"x ({nav[0].units})")
-    ax.set_ylabel(f"y ({nav[1].units})")
-    ax.set_title("camera image")
-    fig.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Camera image written to {path}")
+    for role, rgb in bcf_extras.images(xml).items():
+        path = outdir / f"{stem}_camera_{role}.png"
+        fig, ax = plt.subplots()
+        if role == "HiRes":
+            # Covers exactly the mapped field in the files seen so far, so it
+            # can be given the map's extent; the others have unknown scale.
+            ax.imshow(rgb, extent=(0, width_um, height_um, 0))
+            ax.set_xlabel(f"x ({nav[0].units})")
+            ax.set_ylabel(f"y ({nav[1].units})")
+        else:
+            ax.imshow(rgb)
+            ax.axis("off")
+        ax.set_title(f"camera: {role} ({rgb.shape[1]} x {rgb.shape[0]} px)")
+        fig.savefig(path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Camera image '{role}' written to {path}")
+    return times
 
 
 def main(argv=None) -> int:
@@ -128,22 +155,19 @@ def main(argv=None) -> int:
 
     print(f"\n{args.bcf.name}: {len(signals)} signal(s)\n")
     spectrum_image = None
-    images = []
     for s in signals:
         print(repr(s), s.data.dtype)
         print(s.axes_manager)
         print()
         if s.metadata.Signal.signal_type.startswith("EDS"):
             spectrum_image = s
-        else:
-            images.append(s)
 
     if spectrum_image is None:
         print("No spectrum image found in this file.")
         return 1
 
     s = spectrum_image
-    save_camera_image(images, s, outdir / f"{stem}_camera_rgb.png")
+    times = report_header_extras(args.bcf, s, outdir, stem)
     print("Signal type:", s.metadata.Signal.signal_type)
     print("\nMapped metadata:")
     print(s.metadata)
@@ -183,9 +207,27 @@ def main(argv=None) -> int:
         )
         maps_path = outdir / f"{stem}_line_maps.png"
         plt.gcf().savefig(maps_path, dpi=150, bbox_inches="tight")
-        print(f"Line-intensity maps written to {maps_path}")
+        print(f"Line-intensity maps (raw counts) written to {maps_path}")
         for m in maps:
             print(f"  {m.metadata.General.title}: max {float(m.data.max()):.0f} counts")
+        if times is not None:
+            # Same maps per second of measurement: this is what Esprit shows,
+            # and it removes the dim first column and the stage-speed stripes.
+            cps_maps = [bcf_extras.counts_per_second(m, times) for m in maps]
+            hs.plot.plot_images(
+                cps_maps,
+                per_row=min(4, len(cps_maps)),
+                axes_decor="off",
+                scalebar=[0],
+                colorbar=None,
+                cmap="viridis",
+                vmin="1th",
+                vmax="99th",
+                tight_layout=True,
+            )
+            cps_path = outdir / f"{stem}_line_maps_cps.png"
+            plt.gcf().savefig(cps_path, dpi=150, bbox_inches="tight")
+            print(f"Line-intensity maps (counts per second) written to {cps_path}")
 
     if args.show:
         plt.show()
