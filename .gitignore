@@ -71,3 +71,14 @@ CLAUDE.local.md
 # Uncomment below if .aider.conf.yml is local-only:
 # .aider.conf.yml
 
+
+# uxrf workspace: local data only, never committed
+uxrf/data/*
+!uxrf/data/README.md
+!uxrf/data/fetch_data.py
+uxrf/**/*.png
+uxrf/**/*.tif
+uxrf/**/*.tiff
+# Upstream ignores CLAUDE.md on purpose (conventions live in AGENTS.md). This fork
+# tracks it on its uxrf branches only; never include it in an upstream pull request.
+!CLAUDE.md
