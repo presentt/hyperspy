@@ -6,7 +6,7 @@ Put `.bcf` files and Esprit ASCII exports here for local work.
 ## Published sample maps
 
 Two M4 Tornado hypermaps from a published dataset are available on CaltechDATA,
-record [doi:10.22002/nea2t-91s77](https://doi.org/10.22002/nea2t-91s77):
+record [doi:10.22002/nea2t-91s77](https://doi.org/10.22002/nea2t-91s77). However, they are 403 Forbidden by CaltechDATA from automated download, so I copied them to a shared Google Drive folder ([https://drive.google.com/drive/folders/1N3Uc_OSjoO0bjb0D9BC8mjrkoVP8xwH_](https://drive.google.com/drive/folders/1N3Uc_OSjoO0bjb0D9BC8mjrkoVP8xwH_?usp=sharing)):
 
 | File | Size | Notes |
 |---|---|---|

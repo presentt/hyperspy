@@ -15,7 +15,12 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-RECORD_URL = "https://data.caltech.edu/records/nea2t-91s77/files/"
+# RECORD_URL = "https://data.caltech.edu/records/nea2t-91s77/files/" # 403 Forbidden by CaltechDATA
+RECORD_URL = "https://drive.google.com/drive/folders/1N3Uc_OSjoO0bjb0D9BC8mjrkoVP8xwH_/"
+
+if RECORD_URL.find("drive.google.com") > -1:
+    import gdown
+    GOOGLE_DRIVE = True
 
 FILES = {
     "small": "BDNE-7H1_3620-47_ROI1a 20um 10x30ms 50kV 600uA Al100.bcf",
@@ -27,19 +32,22 @@ HERE = Path(__file__).resolve().parent
 
 def download(name: str, dest: Path) -> None:
     """Stream one file from CaltechDATA to ``dest`` with a simple progress line."""
-    url = RECORD_URL + urllib.parse.quote(name) + "?download=1"
     if dest.exists():
         print(f"already present: {dest.name} ({dest.stat().st_size / 1e6:.1f} MB)")
         return
     print(f"downloading {name}")
-    with urllib.request.urlopen(url) as response, open(dest, "wb") as fh:
-        total = int(response.headers.get("Content-Length") or 0)
-        done = 0
-        while chunk := response.read(1 << 20):
-            fh.write(chunk)
-            done += len(chunk)
-            if total:
-                print(f"\r  {done / 1e6:6.1f} / {total / 1e6:.1f} MB", end="")
+    if GOOGLE_DRIVE == True:
+        gdown.download(RECORD_URL, output=name, quiet=False)
+    else:
+        url = RECORD_URL + urllib.parse.quote(name) + "?download=1"
+        with urllib.request.urlopen(url) as response, open(dest, "wb") as fh:
+            total = int(response.headers.get("Content-Length") or 0)
+            done = 0
+            while chunk := response.read(1 << 20):
+                fh.write(chunk)
+                done += len(chunk)
+                if total:
+                    print(f"\r  {done / 1e6:6.1f} / {total / 1e6:.1f} MB", end="")
     print(f"\n  saved to {dest}")
 
 
